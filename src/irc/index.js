@@ -1,4 +1,4 @@
-var NodeIrc = require('irc');
+var NodeIrc = require('irc-framework');
 var config = require('../config');
 var ircUtil = require('./util');
 var logger = require('winston');
@@ -28,9 +28,17 @@ var shouldRelayEvent = function(event) {
 };
 
 var init = function(msgCallback) {
-    config.ircOptions.channels = ircUtil.getChannels(config.channels);
+    var nodeIrc = new NodeIrc.Client();
+    nodeIrc.connect({
+        host: config.ircServer,
+        nick: config.ircNick,
+        port: config.ircOptions.port,
+        tls: config.ircOptions.secure,
+        password: config.ircOptions.password,
+        username: config.ircOptions.userName,
+        gecos: config.ircOptions.realName,
+    });
 
-    var nodeIrc = new NodeIrc.Client(config.ircServer, config.ircNick, config.ircOptions);
     nodeIrc.on('error', function(error) {
         logger.error('unhandled IRC error:', error);
     });
@@ -38,19 +46,35 @@ var init = function(msgCallback) {
     nodeIrc.on('registered', function() {
         // IRC perform on connect
         config.ircPerformCmds.forEach(function(cmd) {
-            nodeIrc.send.apply(null, cmd.split(' '));
+            nodeIrc.raw.apply(nodeIrc, cmd.split(' '));
+        });
+        config.channels.forEach(function(channel) {
+            nodeIrc.join(channel.ircChan, channel.chanPwd);
         });
     });
 
-    nodeIrc.on('message', function(user, chanName, text) {
+    nodeIrc.on('privmsg', function(event) {
         if (!shouldRelayEvent('message')) {
             return;
         }
 
-        var message = ircUtil.parseMsg(chanName, text);
+        var user = event.nick;
+        var chanName = event.target;
+        var text = event.message;
+        if (ircUtil.checkIgnore(user, text)) {
+            return;
+        }
+
+        var userName = '';
+        if (chanName.toLowerCase() === nodeIrc.user.nick.toLowerCase()) {
+            chanName = config.ircNick;
+            userName = user;
+        }
+
+        var message = ircUtil.parseMsg2(chanName, userName, text);
 
         if (message) {
-            var channel = ircUtil.lookupChannel(chanName, config.channels);
+            var channel = ircUtil.lookupChannel2(chanName, userName, config.channels);
             var ircChanReadOnly = channel.ircChanReadOnly;
             var isOverrideReadOnly = channel.ircChanOverrideReadOnly;
             var isBotHighlighted = config.hlRegexp.exec(message.text);
@@ -76,15 +100,28 @@ var init = function(msgCallback) {
         }
     });
 
-    nodeIrc.on('notice', function(user, chanName, text) {
+    nodeIrc.on('notice', function(event) {
         if (!shouldRelayEvent('notice')) {
             return;
         }
 
-        var notice = ircUtil.parseMsg(chanName, text);
+        var user = event.nick;
+        var chanName = event.target;
+        var text = event.message;
+        if (ircUtil.checkIgnore(user, text)) {
+            return;
+        }
+
+        var userName = '';
+        if (chanName.toLowerCase() === nodeIrc.user.nick.toLowerCase()) {
+            chanName = config.ircNick;
+            userName = user;
+        }
+
+        var notice = ircUtil.parseMsg2(chanName, userName, text);
 
         if (notice) {
-            var channel = ircUtil.lookupChannel(chanName, config.channels);
+            var channel = ircUtil.lookupChannel2(chanName, userName, config.channels);
             var ircChanReadOnly = channel.ircChanReadOnly;
             var isOverrideReadOnly = channel.ircChanOverrideReadOnly;
             var isBotHighlighted = config.hlRegexp.exec(notice.text);
@@ -110,28 +147,47 @@ var init = function(msgCallback) {
         }
     });
 
-    nodeIrc.on('action', function(user, chanName, text) {
+    nodeIrc.on('action', function(event) {
         if (!shouldRelayEvent('action')) {
             return;
         }
 
-        var message = ircUtil.parseMsg(chanName, text);
+        var user = event.nick;
+        var chanName = event.target;
+        var text = event.message;
+
+        var userName = '';
+        if (chanName.toLowerCase() === nodeIrc.user.nick.toLowerCase()) {
+            chanName = config.ircNick;
+            userName = user;
+        }
+
+        var message = ircUtil.parseMsg2(chanName, userName, text);
 
         if (message) {
+            var messageText = user + ': ' + message.text;
+            if (config.emphasizeAction) {
+                messageText = '* ' + messageText + ' *';
+            }
+
             msgCallback({
                 protocol: 'irc',
                 type: 'action',
                 channel: message.channel,
                 user: null,
-                text: '*' + user + ': ' + message.text + '*'
+                text: messageText
             });
         }
     });
 
-    nodeIrc.on('topic', function(chanName, topic, user) {
+    nodeIrc.on('topic', function(event) {
         if (!shouldRelayEvent('topic')) {
             return;
         }
+
+        var chanName = event.channel;
+        var topic = event.topic;
+        var user = event.nick || '';
 
         var message = ircUtil.parseTopic(chanName, topic, user);
 
@@ -146,10 +202,14 @@ var init = function(msgCallback) {
         }
     });
 
-    nodeIrc.on('join', function(chanName, user, text) {
+    nodeIrc.on('join', function(event) {
         if (!shouldRelayEvent('join')) {
             return;
         }
+
+        var chanName = event.channel;
+        var user = event.nick;
+        var text = '';
 
         var channel = ircUtil.lookupChannel(chanName, config.channels);
         msgCallback({
@@ -161,10 +221,14 @@ var init = function(msgCallback) {
         });
     });
 
-    nodeIrc.on('part', function(chanName, user, text) {
+    nodeIrc.on('part', function(event) {
         if (!shouldRelayEvent('part')) {
             return;
         }
+
+        var chanName = event.channel;
+        var user = event.nick;
+        var text = '';
 
         var channel = ircUtil.lookupChannel(chanName, config.channels);
         msgCallback({
@@ -176,10 +240,15 @@ var init = function(msgCallback) {
         });
     });
 
-    nodeIrc.on('kick', function(chanName, user, by, reason) {
+    nodeIrc.on('kick', function(event) {
         if (!shouldRelayEvent('kick')) {
             return;
         }
+
+        var chanName = event.channel;
+        var user = event.kicked;
+        var by = event.nick;
+        var reason = event.message;
 
         var channel = ircUtil.lookupChannel(chanName, config.channels);
         msgCallback({
@@ -191,51 +260,74 @@ var init = function(msgCallback) {
         });
     });
 
+    // new framework doesn't provide the channels....
     nodeIrc.on('quit', function(user, text, channels, message) {
-        if (!shouldRelayEvent('quit')) {
-            return;
-        }
+        return;
+    });
 
-        for (var i = 0; i < channels.length; i++) {
-            var reason = '';
-            if (text) {
-                reason = ' (' + text + ')';
-            }
-
-            var channel = ircUtil.lookupChannel(channels[i], config.channels);
-            msgCallback({
-                protocol: 'irc',
-                type: 'quit',
-                channel: channel,
-                user: null,
-                text: user + ' has quit' + reason
-            });
+    nodeIrc.on('nick', function(event) {
+        if (nodeIrc.user.nick === event.nick) {
+            logger.debug('new nick:', event.new_nick);
+            nodeIrc.user.nick = event.new_nick;
         }
     });
 
+    // added since framework does not have async
+    // method to return nicklist
+    nodeIrc.on('wholist', function(event) {
+        var channel = ircUtil.lookupChannel(event.target, config.channels);
+        var users = event.users.reduce(function(usersStr, user) {
+            if (usersStr === '') {
+                return user.nick;
+            }
+            return usersStr + ', ' + user.nick;
+        }, '');
+        msgCallback({
+            protocol: 'irc',
+            channel: channel,
+            user: '',
+            text: 'Users in ' + event.target + ':\n\n' + users
+        });
+    });
+
     return {
-        send: function(message, raw) {
-            if (!raw) {
-                // strip empty lines
-                message.text = message.text.replace(/^\s*\n/gm, '');
+        send: function(message, multi) {
 
-                // replace newlines
-                message.text = message.text.replace(/\n/g, config.replaceNewlines);
-
-                // TODO: replace here any remaining newlines with username
-                // (this can happen if user configured replaceNewlines to itself
-                // contain newlines)
+            if (multi) {
+                logger.verbose('<< relaying to IRC w/ multiple lines:', message.text);
+                message.text.split('\n').forEach(function(msg) {
+                    nodeIrc.say(message.channel.ircChan, msg);
+                });
+                return;
             }
 
+            // strip empty lines
+            message.text = message.text.replace(/^\s*\n/gm, '');
+
+            // replace newlines
+            message.text = message.text.replace(/\n/g, config.replaceNewlines);
+
             logger.verbose('<< relaying to IRC:', message.text);
-            nodeIrc.say(message.channel.ircChan, message.text);
+            if (config.replaceNewlines.indexOf('\n') < 0) {
+                logger.verbose('<< relaying to IRC:', message.text);
+                nodeIrc.say(message.channel.ircChan, message.text);
+            } else {
+                var username = message.text.slice(0, message.text.indexOf('>') + 2);
+                var rest = message.text.slice(message.text.indexOf('>') + 2);
+                rest.split('\n').forEach(function(msg) {
+                    nodeIrc.say(message.channel.ircChan, username + msg);
+                });
+            }
         },
         getNames: function(channel) {
-            return ircUtil.getNames(nodeIrc.chans[channel.ircChan.toLowerCase()]);
+            nodeIrc.who(channel.ircChan);
+            return null;
         },
         getTopic: function(channel) {
-            var topic = ircUtil.getTopic(nodeIrc.chans[channel.ircChan.toLowerCase()]);
-            return ircUtil.topicFormat(channel, topic.text, topic.topicBy);
+            nodeIrc.raw('TOPIC ' + channel.ircChan);
+            return null;
+            //var topic = ircUtil.getTopic(nodeIrc.chans[channel.ircChan.toLowerCase()]);
+            //return ircUtil.topicFormat(channel, topic.text, topic.topicBy);
         }
     };
 };

@@ -2,7 +2,6 @@
 
 A simple [Telegram](https://telegram.org/) ↔ IRC gateway.
 
-* [Changelog](https://fruitiex.org/blog/tag/teleirc/)
 * Official IRC channel: [#teleirc @ irc.freenode.net](https://kiwiirc.com/client/irc.freenode.net:+6697/#teleirc)
 * Official Telegram group: Run `teleirc --join-tg` for URL (to prevent spambots)
 
@@ -19,10 +18,19 @@ A simple [Telegram](https://telegram.org/) ↔ IRC gateway.
   bot is hilighted via a configurable regexp
 * Supports Telegram media files, URL to file sent to IRC
 
+Requirements
+------------
+
+On Ubuntu:
+```
+sudo apt-get install libicu-dev
+```
+
+
 Quick start
 -----------
 
-Make sure you've installed Node.js.
+Make sure you've installed the [latest LTS version of Node.js](https://nodejs.org/en/).
 
 1. Install the teleirc npm module with `npm install -g teleirc` (might need
    sudo)

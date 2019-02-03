@@ -18,9 +18,26 @@ config.tgToken = 'YOUR-BOT-TOKEN';
 // message, notice, action, topic, join, part, kick, quit
 config.relayIRCEvents = ['message', 'notice', 'action', 'topic', 'kick'];
 
+// The maximum length of quoted message when a message is replied to in Telegram
+// Set to 0 to disable showing replies
+config.replySnippetLength = 80;
+
+// Relay edited Telgram messages to  IRC
+config.relayEdited = false;
+
 // enable HTTP server which hosts sent media files, links to files are
 // forwarded to IRC
 config.showMedia = false;
+
+// disable the internal webserver and use your own instead.
+config.externalWebServer = false;
+
+// Convert these media files to other types using the "convert" command.
+// To be able to convert from WebP, install imagemagick and the dwebp tool
+// (e.g. sudo apt install imagemagick webp)
+config.mediaConversions = {
+    //'webp': 'png'
+};
 
 // Add some randomness to url when relaying media
 // Use 0 to disable
@@ -42,6 +59,10 @@ config.uploadToImgur = false;
 
 // Imgur client id required for uploading photos to Imgur
 config.imgurClientId = 'YOUR-CLIENT-ID';
+
+// How many Imgur links are stored in an LRU (least recently used) cache for
+// reuse if the same image/sticker is sent again.
+config.imgurLinkCacheSize = 1000;
 
 // Whether to allow sending messages to IRC without nick prefix
 config.allowCommands = false;
@@ -132,6 +153,7 @@ config.ircOptions = {
     userName: 'bot',
     realName: 'Telegram IRC Bot',
     port: 6667,
+    password: '',
     localAddress: null,
     showErrors: false,
     autoRejoin: false,
@@ -158,3 +180,18 @@ config.hlRegexp = new RegExp(regex, 'i');
 // with the default regexp this would hide the bot nickname in messages when
 // highlighted
 config.hlOnlyShowMatch = false;
+
+// put action messages (posted with /me in IRC) between '*'
+config.emphasizeAction = true;
+
+// a list of users to ignore
+// and not relay to telegram
+config.ircIgnoreList = [
+// 'user_or_bot_here'
+];
+
+// list of regular expressions to test a message
+// text with, any that match will mean the message won't relay
+config.ircRegexFilters = [
+// /regexhere/,
+];
